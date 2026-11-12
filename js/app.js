@@ -44,7 +44,9 @@
     ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
     flame: '<path d="M12 22c4 0 7-3 7-7 0-5-4-7-5-11-2 2-3 4-3 6-1-1-2-2-2-4-2 2-4 5-4 9 0 4 3 7 7 7z"/>',
     play: '<path d="M3 7.5C3 5.6 4.6 4 6.5 4h11C19.4 4 21 5.6 21 7.5v9c0 1.9-1.6 3.5-3.5 3.5h-11C4.6 20 3 18.4 3 16.5zM10 9v6l5-3z"/>',
-    moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>'
+    moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+    send: '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>',
+    users: '<path d="M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 20v-1a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>'
   };
 
   /* =================== Learning links =================== */
@@ -231,7 +233,147 @@
   }
 
   /* =================== Small render helpers =================== */
-  const ring = (p, label, sub, href) => `<a class="ring-wrap" href="${href}"><div class="ring" style="--p:${p}"><span>${p}%</span></div><div><b>${esc(label)}</b>${esc(sub)}</div></a>`;
+  const ring = (p, label, sub, href, c = '') => `<a class="ring-wrap ${c ? 'c-' + c : ''}" href="${href}"><div class="ring" style="--p:${p}"><span>${p}%</span></div><div><b>${esc(label)}</b>${esc(sub)}</div></a>`;
+
+  /* =================== Colour categories =================== */
+  const CAT = {
+    dsa: { label: 'DSA problems', icon: 'grid' },
+    apps: { label: 'Applications', icon: 'brief' },
+    refs: { label: 'Referral msgs', icon: 'send' },
+    intv: { label: 'Interviews', icon: 'users' },
+    proj: { label: 'Project 30 min', icon: 'box' }
+  };
+  // Which colour a timetable block gets (custom `c` wins, else guessed from its title).
+  function blockCat(b) {
+    if (b.c) return b.c;
+    if (b.k === 'break') return 'brk';
+    const s = `${b.t} ${b.d}`.toLowerCase();
+    if (/dsa|leetcode|algorithm/.test(s)) return 'dsa';
+    if (/job|appl|referral|naukri/.test(s)) return 'apps';
+    if (/project|build/.test(s) && !/machine/.test(s)) return 'proj';
+    if (/machine|mock|interview|cs:|slot|rotating/.test(s)) return 'intv';
+    return 'mc';
+  }
+  const toMin = hhmm => { const [h, m] = String(hhmm).split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  const nowMin = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes() + n.getSeconds() / 60; };
+  function leftLabel(endHHMM) {
+    const m = Math.max(0, Math.ceil(toMin(endHHMM) - nowMin()));
+    return m >= 60 ? `${Math.floor(m / 60)}h ${pad(m % 60)}m` : `${m} min`;
+  }
+  // Last n days of a metric, oldest first.
+  function series(k, n = 7) {
+    const out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = addDays(today(), -i), st = dayStatus(d), l = lg(d);
+      out.push(k === 'dsa' ? st.dsa : k === 'apps' ? st.apps : k === 'refs' ? st.refs : k === 'intv' ? (+l.intv || 0) : k === 'min' ? (st.min ? 1 : 0) : 0);
+    }
+    return out;
+  }
+  function spark(vals) {
+    const max = Math.max(1, ...vals);
+    return `<div class="spark" aria-hidden="true">${vals.map((v, i) => `<i class="${i === vals.length - 1 ? 'last' : ''}" style="height:${Math.max(8, (v / max) * 100)}%;${v ? '' : 'opacity:.35'}"></i>`).join('')}</div>`;
+  }
+  function statCard(c, icon, label, num, sub, vals, href) {
+    return `<a class="card stat stat-c s-3 c-${c}" href="${href}">
+      <div class="row" style="flex-wrap:nowrap"><span class="chip-ic">${ic(icon)}</span><span class="lbl">${label}</span></div>
+      <div class="row" style="flex-wrap:nowrap;align-items:flex-end"><span class="num">${num}</span><span class="spacer"></span>${vals ? spark(vals) : ''}</div>
+      <span class="hint">${sub}</span></a>`;
+  }
+  // One goal tile: coloured ring + value/target + buttons. mode 'quick' = one tap +1 for today, 'edit' = −/+ for ui.day.
+  function goalTile(k, d, mode) {
+    const st = dayStatus(d), l = lg(d), T = S.settings.targets;
+    const isProj = k === 'proj';
+    const val = isProj ? (l.proj ? 1 : 0) : k === 'intv' ? (+l.intv || 0) : st[k];
+    const target = isProj ? 1 : k === 'intv' ? 0 : +T[k] || 0;
+    const p = target ? pct(val, target) : (val ? 100 : 0);
+    const hit = target ? val >= target : val > 0;
+    let btns;
+    if (isProj) btns = `<button class="goal-btn ${l.proj ? 'on' : ''}" data-act="${mode === 'quick' ? 'quick-proj' : 'log-toggle'}" data-k="proj" aria-pressed="${!!l.proj}" aria-label="Toggle 30 minutes on project">${ic('check')}</button>`;
+    else if (mode === 'quick') btns = `<button class="goal-btn" data-act="quick-log" data-k="${k}" aria-label="Add one ${CAT[k].label}">${ic('plus')}</button>`;
+    else btns = `<button class="goal-btn ghost" data-act="cnt" data-k="${k}" data-n="-1" aria-label="Remove one ${CAT[k].label}">−</button><button class="goal-btn" data-act="cnt" data-k="${k}" data-n="1" aria-label="Add one ${CAT[k].label}">${ic('plus')}</button>`;
+    return `<div class="goal c-${k} ${hit ? 'hit' : ''}">
+      <div class="goal-ring" style="--p:${p}"><span>${hit ? ic('check') : ic(CAT[k].icon)}</span></div>
+      <div class="goal-main"><b>${isProj ? (l.proj ? 'Done' : 'Not yet') : val}${target && !isProj ? `<small> / ${target}</small>` : ''}</b><span>${CAT[k].label}</span></div>
+      <div class="goal-btns">${btns}</div></div>`;
+  }
+
+  /* =================== "Right now" card =================== */
+  function rightNowCard() {
+    const t = today(), bl = blocksFor(t), r = rot(t), st = dayStatus(t);
+    if (!bl) {
+      const rest = parse(t).getDay() === +S.settings.restDay;
+      return `<section class="now-card c-${rest ? 'brk' : 'intv'}"><div class="now-top">
+        <div class="now-main"><p class="now-eyebrow">${DAYS[parse(t).getDay()]} · ${rest ? 'Rest day' : 'Weekend plan'}</p>
+          <h2>${esc(r.note || 'Free day')}</h2></div>
+        <div class="now-actions">${rest ? '<a class="btn" href="#weekly">Weekly review</a>' : `<button class="btn primary-c" data-act="timer-start" data-min="60">${ic('clock')} Focus 60 min</button><a class="btn" href="#weekly">Weekly review</a>`}</div>
+      </div></section>`;
+    }
+    const nm = nowMin();
+    const first = toMin(bl[0].s), last = toMin(bl[bl.length - 1].e);
+    const cur = bl.find(b => toMin(b.s) <= nm && nm < toMin(b.e));
+    const next = bl.find(b => toMin(b.s) > nm);
+    const b = cur || next;
+    const c = b ? blockCat(b) : 'apps';
+
+    // Segmented strip of the whole day.
+    const span = Math.max(1, last - first);
+    const marker = Math.max(0, Math.min(100, ((nm - first) / span) * 100));
+    const strip = `<div class="day-strip" aria-hidden="true">${bl.map(x => {
+      const w = ((toMin(x.e) - toMin(x.s)) / span) * 100, xc = blockCat(x);
+      const state = x === cur ? 'cur' : toMin(x.e) <= nm ? 'past' : '';
+      return `<i class="seg-b c-${xc} ${state}" style="width:${w}%" title="${esc(x.s)}–${esc(x.e)} ${esc(x.t)}"></i>`;
+    }).join('')}${nm >= first && nm <= last ? `<b class="strip-now" style="left:${marker}%"></b>` : ''}</div>
+      <div class="strip-legend">${bl.filter(x => x.k !== 'break').map(x => `<span class="c-${blockCat(x)}"><i></i>${esc(x.s)} ${esc(x.t)}</span>`).join('')}</div>`;
+
+    let eyebrow, title, detail = '', timeHtml = '', prog = '';
+    if (cur) {
+      eyebrow = `Now · ${esc(cur.s)} – ${esc(cur.e)}`;
+      title = esc(cur.t); detail = esc(cur.d || '');
+      const p = ((nm - toMin(cur.s)) / Math.max(1, toMin(cur.e) - toMin(cur.s))) * 100;
+      timeHtml = `<div class="now-time"><b data-until="${esc(cur.e)}">${leftLabel(cur.e)}</b><small>left</small></div>`;
+      prog = `<div class="now-prog"><i data-prog-s="${esc(cur.s)}" data-prog-e="${esc(cur.e)}" style="width:${p}%"></i></div>`;
+    } else if (next) {
+      eyebrow = nm < first ? 'Day starts soon' : 'Up next';
+      title = esc(next.t); detail = esc(next.d || '');
+      timeHtml = `<div class="now-time"><b data-until="${esc(next.s)}">${leftLabel(next.s)}</b><small>until ${esc(next.s)}</small></div>`;
+    } else {
+      eyebrow = 'Work day finished';
+      title = st.min ? 'Good work today. Rest up.' : 'Log your day before you stop';
+      detail = st.min ? 'Your minimum day is done, so today counts toward your streak.' : 'Tap the goals below for anything you did, then rest.';
+    }
+
+    // "Later today": the next few focus blocks after the one shown.
+    const later = bl.filter(x => toMin(x.s) > nm && x !== b && x.k !== 'break').slice(0, 3);
+    const laterHtml = later.length ? `<div class="now-later"><p class="now-later-h">Later today</p>${later.map(x => `<div class="later-row c-${blockCat(x)}"><span class="later-time">${esc(x.s)}</span><i></i><span class="later-t"><b>${esc(x.t)}</b>${x.d ? `<small>${esc(x.d)}</small>` : ''}</span></div>`).join('')}</div>` : '';
+
+    // Contextual actions for the block.
+    const nx = nextProblems(1)[0];
+    const rr = rot(t);
+    let actions = '';
+    if (!b) actions = `<a class="btn primary-c" href="#today">${ic('sun')} Open Today</a>`;
+    else if (c === 'dsa') actions = `${nx ? `<a class="btn primary-c" href="${esc(safeUrl(nx.i.u) || '#dsa')}" target="_blank" rel="noopener">${ic('ext')} Solve: ${esc(nx.i.t)}</a>` : ''}<button class="btn" data-act="timer-start" data-min="25">${ic('clock')} 25 min</button>`;
+    else if (c === 'apps') actions = `<button class="btn primary-c" data-act="quick-log" data-k="apps">${ic('plus')} Application</button><button class="btn" data-act="quick-log" data-k="refs">${ic('plus')} Referral</button><a class="btn" href="https://www.naukri.com/mnjuser/recommendedjobs" target="_blank" rel="noopener">Naukri ${ic('ext')}</a>`;
+    else if (c === 'proj') actions = `<button class="btn primary-c" data-act="timer-start" data-min="90">${ic('clock')} Focus 90 min</button><button class="btn" data-act="quick-proj">${ic('check')} 30 min done</button>`;
+    else if (c === 'intv') actions = /machine/i.test(b.d) ? `<button class="btn primary-c" data-act="timer-start" data-min="90">${ic('clock')} Start 90-min build</button><a class="btn" href="#frontend">Pick a build</a>` : `<a class="btn primary-c" href="${yt(`${b.d || b.t} interview questions`)}" target="_blank" rel="noopener">${ic('play')} Watch</a><a class="btn" href="#topics">Rate topics</a>`;
+    else if (c === 'mc') actions = `<a class="btn primary-c" href="${yt(`${rr.dev || b.d || b.t} interview questions`)}" target="_blank" rel="noopener">${ic('play')} ${esc(rr.dev || 'Topic')} videos</a><a class="btn" href="#topics">Topics</a>`;
+    else actions = `<span class="muted small">Stand up, drink water, look away from the screen.</span>`;
+
+    return `<section class="now-card c-${c}">
+      <div class="now-body">
+        <div class="now-top">
+          <div class="now-main">
+            <p class="now-eyebrow"><span class="pulse"></span>${eyebrow}</p>
+            <h2>${title}</h2>${detail ? `<p class="now-detail">${detail}</p>` : ''}
+          </div>
+          ${timeHtml}
+        </div>
+        ${prog}
+        <div class="now-actions">${actions}</div>
+        ${laterHtml}
+      </div>
+      <div class="now-foot">${strip}</div>
+    </section>`;
+  }
   const bar = (p, cls = '') => `<div class="bar ${cls}"><i style="width:${p}%"></i></div>`;
   const head = (title, sub, right = '') => `<header class="page-head"><div><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div><div class="row">${right}</div></header>`;
   const editToggle = () => `<button class="btn ${ui.edit ? 'on' : ''}" data-act="toggle-edit">${ic('sliders')} ${ui.edit ? 'Done customising' : 'Customise'}</button>`;
@@ -259,19 +401,14 @@
     const ready = tps.length ? Math.round((tps.reduce((a, i) => a + (+i.c || 0), 0) / (tps.length * 3)) * 100) : 0;
     const ms = S.projects.flatMap(p => p.ms);
     const due = dsa.filter(i => i.rev && i.rev <= t);
-    const nb = nowBlock();
-
-    let nowHtml;
-    if (nb.custom) nowHtml = `<div class="now"><span class="dot"></span><div><div class="muted small">${DAYS[parse(t).getDay()]}</div><b>${esc(nb.custom.note || 'Free day')}</b></div></div>`;
-    else if (nb.cur) nowHtml = `<div class="now"><span class="dot"></span><div><div class="muted small">Now · until ${esc(nb.cur.e)}</div><b>${esc(nb.cur.t)}</b>${nb.cur.d ? `<div class="muted small">${esc(nb.cur.d)}</div>` : ''}</div></div>`;
-    else if (nb.next) nowHtml = `<div class="now"><span class="dot" style="opacity:.4"></span><div><div class="muted small">Next at ${esc(nb.next.s)}</div><b>${esc(nb.next.t)}</b>${nb.next.d ? `<div class="muted small">${esc(nb.next.d)}</div>` : ''}</div></div>`;
-    else nowHtml = '<div class="now"><span class="dot" style="opacity:.4"></span><div><div class="muted small">Work day finished</div><b>Log your day, then rest.</b></div></div>';
-
     const ups = upcoming().slice(0, 6);
+    const offers = S.jobs.filter(j => j.status === 'Offer').length;
+    const mins = series('min', 7).reduce((a, v) => a + v, 0);
     const todaySt = dayStatus(t);
 
-    return `
-      <section class="card hero">
+    // Dashboard = one 12-column grid ("bento"); each card declares how many columns it spans.
+    return `<div class="bento">
+      <section class="card hero s-12">
         <div class="hero-top">
           <div>
             <p class="eyebrow">${fmt(t, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
@@ -283,50 +420,44 @@
             <div><b>${Math.max(0, left)}</b><small>days left</small></div>
           </div>
         </div>
-        <div>${bar(pct(elapsed, total))}<div class="row small muted" style="margin-top:6px"><span>${fmt(st.start)}</span><span class="spacer"></span><span>${pct(elapsed, total)}% of the plan elapsed</span><span class="spacer"></span><span>${fmt(st.end)}</span></div></div>
+        <div><div class="bar grad">${`<i style="width:${pct(elapsed, total)}%"></i>`}</div><div class="row small muted" style="margin-top:6px"><span>${fmt(st.start)}</span><span class="spacer"></span><span>${pct(elapsed, total)}% of the plan elapsed</span><span class="spacer"></span><span>${fmt(st.end)}</span></div></div>
       </section>
 
       ${backupNote()}
-      <div class="quick-row" style="margin-top:var(--gap)">${quickButtons(t)}</div>
+      <div class="s-8 now-slot">${rightNowCard()}</div>
 
-      <div class="grid g4" style="margin-top:var(--gap)">
-        <div class="card stat"><span class="lbl">${ic('flame')} Streak</span><span class="num">${streak()} <small class="muted" style="font-size:14px">days</small></span><span class="hint">Best ${bestStreak()} · rest day doesn't break it</span></div>
-        <div class="card stat"><span class="lbl">DSA solved</span><span class="num">${dsaDone}<small class="muted" style="font-size:14px"> / ${dsa.length}</small></span><span class="hint">${todaySt.dsa} today</span></div>
-        <div class="card stat"><span class="lbl">Applications</span><span class="num">${sumLogs('apps')}</span><span class="hint">${todaySt.apps} today · ${sumLogs('refs')} referral msgs</span></div>
-        <div class="card stat"><span class="lbl">Interviews</span><span class="num">${sumLogs('intv')}</span><span class="hint">${S.jobs.filter(j => j.status === 'Offer').length} offer${S.jobs.filter(j => j.status === 'Offer').length === 1 ? '' : 's'}</span></div>
+      <div class="card goals-card s-4">
+        <h3>Today's goals</h3>
+        <span class="badge ${todaySt.min ? 'ok' : ''}">${todaySt.full ? ic('check') + ' All targets hit' : todaySt.min ? ic('check') + ' Minimum day done' : `Minimum: ${S.settings.minimum.dsa} DSA · ${S.settings.minimum.apps} apps · project`}</span>
+        <div class="goals">${['dsa', 'apps', 'refs', 'intv', 'proj'].map(k => goalTile(k, t, 'quick')).join('')}</div>
       </div>
 
-      <div class="grid g2" style="margin-top:var(--gap)">
-        <div class="card"><h3>Right now<span class="spacer"></span><a class="btn sm ghost" href="#today">Log today ${ic('right')}</a></h3>${nowHtml}
-          <div class="row" style="margin-top:16px">
-            <span class="badge ${todaySt.min ? 'ok' : ''}">${todaySt.min ? ic('check') + ' Minimum day done' : 'Minimum day not done yet'}</span>
-            ${todaySt.full ? `<span class="badge ok">${ic('check')} All targets hit</span>` : ''}
-          </div>
-        </div>
+        ${statCard('streak', 'flame', 'Streak', `${streak()}<small> days</small>`, `Best ${bestStreak()} · ${mins}/7 good days this week`, series('min'), '#weekly')}
+        ${statCard('dsa', 'grid', 'DSA solved', `${dsaDone}<small> / ${dsa.length}</small>`, `${todaySt.dsa} today · last 7 days →`, series('dsa'), '#dsa')}
+        ${statCard('apps', 'brief', 'Applications', `${sumLogs('apps')}`, `${todaySt.apps} today · ${sumLogs('refs')} referrals`, series('apps'), '#jobs')}
+        ${statCard('intv', 'users', 'Interviews', `${sumLogs('intv')}`, `${offers} offer${offers === 1 ? '' : 's'}`, series('intv'), '#jobs')}
+
         ${nextUpCard()}
-      </div>
-
-      <div class="grid g2" style="margin-top:var(--gap)">
-        <div class="card"><h3>Upcoming deadlines<span class="spacer"></span><a class="btn sm ghost" href="#projects">All ${ic('right')}</a></h3>
+        <div class="card s-6"><h3>Upcoming deadlines<span class="spacer"></span><a class="btn sm ghost" href="#projects">All ${ic('right')}</a></h3>
           ${ups.length ? `<ul class="list">${ups.map(u => `<li class="item"><button class="check" data-act="${u.act}" data-p="${u.p}" data-i="${u.i}" aria-label="Mark done">${ic('check')}</button><div class="item-main"><span class="t">${esc(u.t)}</span><div class="meta">${esc(u.src)} · ${fmt(u.date)} · ${dueLabel(u.date)}</div></div></li>`).join('')}</ul>` : '<p class="empty">Nothing pending. Nice.</p>'}
         </div>
-        <div class="card"><h3>Due for revision <span class="tag">${due.length}</span><span class="spacer"></span><a class="btn sm ghost" href="#dsa">Sheet ${ic('right')}</a></h3>
-          ${due.length ? `<ul class="list">${due.slice(0, 6).map(i => { const g = S.dsa.find(x => x.items.includes(i)); const u = safeUrl(i.u); return `<li class="item"><div class="item-main">${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(i.t)}</a>` : `<span class="t">${esc(i.t)}</span>`}<div class="meta">${esc(g.name)} · due ${fmt(i.rev)}</div></div><button class="btn sm" data-act="rev-done" data-g="${g.id}" data-i="${esc(i.id)}">${ic('check')} Revised</button></li>`; }).join('')}</ul>${due.length > 6 ? `<p class="small muted">+${due.length - 6} more on the sheet</p>` : ''}` : '<p class="empty">No problems due. Mark tricky ones with the ↻ button and they come back here after ' + (+S.settings.reviseDays || 3) + ' days.</p>'}
-        </div>
-      </div>
 
-      <div class="card" style="margin-top:var(--gap)">
+        <div class="card s-6"><h3>Consistency<span class="spacer"></span><span class="small muted" style="font-weight:400">${mins}/7 good days this week</span></h3>${heatmap()}</div>
+        <div class="card s-6"><h3>Due for revision <span class="tag">${due.length}</span><span class="spacer"></span><a class="btn sm ghost" href="#dsa">Sheet ${ic('right')}</a></h3>
+          ${due.length ? `<ul class="list">${due.slice(0, 6).map(i => { const g = S.dsa.find(x => x.items.includes(i)); const u = safeUrl(i.u); return `<li class="item"><div class="item-main">${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(i.t)}</a>` : `<span class="t">${esc(i.t)}</span>`}<div class="meta">${esc(g.name)} · due ${fmt(i.rev)}</div></div><div class="item-end"><button class="btn sm" data-act="rev-done" data-g="${g.id}" data-i="${esc(i.id)}">${ic('check')} Revised</button></div></li>`; }).join('')}</ul>${due.length > 6 ? `<p class="small muted">+${due.length - 6} more on the sheet</p>` : ''}` : '<p class="empty">No problems due. Mark tricky ones with the ↻ button and they come back here after ' + (+S.settings.reviseDays || 3) + ' days.</p>'}
+        </div>
+
+      <div class="card s-12">
         <h3>Progress</h3>
         <div class="rings">
-          ${ring(pct(dsaDone, dsa.length), 'DSA', `${dsaDone}/${dsa.length}`, '#dsa')}
-          ${ring(pct(js.filter(i => i.done).length, js.length), 'JS coding', `${js.filter(i => i.done).length}/${js.length}`, '#frontend')}
-          ${ring(pct(mc.filter(i => i.done).length, mc.length), 'Machine coding', `${mc.filter(i => i.done).length}/${mc.length}`, '#frontend')}
-          ${ring(ready, 'Topic readiness', `${tps.filter(i => i.c >= 3).length} ready`, '#topics')}
-          ${ring(pct(ms.filter(m => m.done).length, ms.length), 'Milestones', `${ms.filter(m => m.done).length}/${ms.length}`, '#projects')}
+          ${ring(pct(dsaDone, dsa.length), 'DSA', `${dsaDone}/${dsa.length}`, '#dsa', 'dsa')}
+          ${ring(pct(js.filter(i => i.done).length, js.length), 'JS coding', `${js.filter(i => i.done).length}/${js.length}`, '#frontend', 'mc')}
+          ${ring(pct(mc.filter(i => i.done).length, mc.length), 'Machine coding', `${mc.filter(i => i.done).length}/${mc.length}`, '#frontend', 'proj')}
+          ${ring(ready, 'Topic readiness', `${tps.filter(i => i.c >= 3).length} ready`, '#topics', 'refs')}
+          ${ring(pct(ms.filter(m => m.done).length, ms.length), 'Milestones', `${ms.filter(m => m.done).length}/${ms.length}`, '#projects', 'intv')}
         </div>
       </div>
-
-      <div class="card" style="margin-top:var(--gap)"><h3>Consistency<span class="spacer"></span><span class="small muted" style="font-weight:400">Hover a square for the date</span></h3>${heatmap()}</div>`;
+    </div>`;
   }
 
   function quickButtons(d) {
@@ -337,13 +468,13 @@
   }
 
   function nextUpCard() {
-    const nx = nextProblems(3);
-    return `<div class="card"><h3>Next up on the sheet<span class="spacer"></span><a class="btn sm ghost" href="#dsa">Sheet ${ic('right')}</a></h3>
+    const nx = nextProblems(5);
+    return `<div class="card s-6"><h3>Next up on the sheet<span class="spacer"></span><a class="btn sm ghost" href="#dsa">Sheet ${ic('right')}</a></h3>
       ${nx.length ? `<ul class="list">${nx.map(({ g, i }) => { const u = safeUrl(i.u); return `<li class="item">
         <button class="check" data-act="toggle" data-list="dsa" data-g="${g.id}" data-i="${esc(i.id)}" aria-label="Mark ${esc(i.t)} done">${ic('check')}</button>
         <div class="item-main"><span class="t">${esc(i.t)}</span><div class="meta">${esc(g.name)}</div></div>
-        <span class="tag diff-${esc(i.d)}">${{ E: 'Easy', M: 'Medium', H: 'Hard' }[i.d] || ''}</span>
-        ${u ? `<a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">Solve ${ic('ext')}</a>` : ''}</li>`; }).join('')}</ul>` : '<p class="empty">Every problem is solved. Time to revise.</p>'}
+        <div class="item-end"><span class="tag diff-${esc(i.d)}">${{ E: 'Easy', M: 'Medium', H: 'Hard' }[i.d] || ''}</span>
+        ${u ? `<a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">Solve ${ic('ext')}</a>` : ''}</div></li>`; }).join('')}</ul>` : '<p class="empty">Every problem is solved. Time to revise.</p>'}
     </div>`;
   }
 
@@ -351,7 +482,7 @@
     if (!hasData()) return '';
     const days = S.lastBackup ? diff(S.lastBackup, today()) : null;
     if (days !== null && days < 7) return '';
-    return `<div class="notice" style="margin-top:var(--gap)">${ic('clock')}<span>${days === null ? 'You have never exported a backup.' : `Last backup was ${days} days ago.`} Your progress lives only in this browser.</span><button class="btn sm" data-act="export">Export backup</button></div>`;
+    return `<div class="notice s-12">${ic('clock')}<span>${days === null ? 'You have never exported a backup.' : `Last backup was ${days} days ago.`} Your progress lives only in this browser.</span><button class="btn sm" data-act="export">Export backup</button></div>`;
   }
 
   function heatmap() {
@@ -370,69 +501,116 @@
       <div class="legend"><span>Less</span><i class="hc l0"></i><i class="hc l1"></i><i class="hc l2"></i><i class="hc l3"></i><span>More</span><span class="spacer"></span><span>Columns are weeks, Mon → Sun</span></div>`;
   }
 
-  function vToday() {
-    const d = ui.day, l = lg(d), st = dayStatus(d), T = S.settings, isT = d === today();
-    const auto = allDsa().filter(i => i.done === d).length;
-    const counter = (k, label, val, target, extra = '') => `
-      <div class="counter-card ${target && val >= target ? 'hit' : ''}">
-        <div class="lbl">${label}</div>
-        <div class="counter">
-          <button class="icon-btn lg" data-act="cnt" data-k="${k}" data-n="-1" aria-label="Decrease ${label}">−</button>
-          <b>${val}</b>
-          <button class="icon-btn lg" data-act="cnt" data-k="${k}" data-n="1" aria-label="Increase ${label}">+</button>
-        </div>
-        <div class="tgt">${target ? `target ${target}` : '&nbsp;'}${extra}</div>
-      </div>`;
+  /* ---------- Today page ---------- */
+  // Week strip: the 7 days around the selected day, each with a consistency dot.
+  function weekStrip(d) {
+    const t = today(), mon = addDays(d, -((parse(d).getDay() + 6) % 7));
+    const w = weekOf(d), N = totalWeeks();
+    const days = [0, 1, 2, 3, 4, 5, 6].map(i => {
+      const x = addDays(mon, i), lvl = x > t ? 'f' : dayStatus(x).lvl;
+      return `<button class="wk-day ${x === d ? 'sel' : ''} ${x === t ? 'is-today' : ''}" data-act="day-set" data-d="${x}" aria-pressed="${x === d}" aria-label="${fmt(x, { weekday: 'long', day: 'numeric', month: 'long' })}">
+        <span class="wk-name">${DAYS[parse(x).getDay()].slice(0, 3)}</span><b>${parse(x).getDate()}</b><i class="wk-dot l${lvl}"></i></button>`;
+    }).join('');
+    return `<div class="week-wrap">
+      <div class="week-head"><span>${w >= 1 && w <= N ? `Week ${w} of ${N}` : 'Outside your plan'} · ${fmt(mon)} – ${fmt(addDays(mon, 6))}</span><span class="spacer"></span>
+        ${d !== t ? `<button class="btn sm" data-act="day" data-n="0">${ic('sun')} Back to today</button>` : ''}
+        <label class="date-pick" title="Pick a date">${ic('clock')}<input type="date" id="dayPick" value="${d}" aria-label="Pick a date"></label></div>
+      <div class="week-strip">
+        <button class="icon-btn wk-arrow" data-act="day" data-n="-7" aria-label="Previous week">${ic('left')}</button>
+        ${days}
+        <button class="icon-btn wk-arrow" data-act="day" data-n="7" aria-label="Next week">${ic('right')}</button>
+      </div></div>`;
+  }
 
-    const bl = blocksFor(d);
-    const r = rot(d);
-    const t = hm();
-    const timeline = bl
-      ? `<div class="timeline">${bl.map(b => `<div class="blk ${b.k === 'break' ? 'break' : ''} ${isT && b.s <= t && t < b.e ? 'now' : ''} ${isT && b.e <= t ? 'past' : ''}"><div class="time">${esc(b.s)} – ${esc(b.e)}</div><div><b>${esc(b.t)}</b>${b.d ? `<div class="d">${esc(b.d)}</div>` : ''}</div></div>`).join('')}</div>`
+  // What's still missing for the minimum day / all targets, in plain words.
+  function dayGuidance(d) {
+    const st = dayStatus(d), l = lg(d), T = S.settings, t = today();
+    const plural = (n, w) => `${n} more ${w}${n === 1 ? '' : 's'}`;
+    const need = [];
+    if (st.dsa < T.minimum.dsa) need.push(`solve ${plural(T.minimum.dsa - st.dsa, 'DSA problem')}`);
+    if (st.apps < T.minimum.apps) need.push(`send ${plural(T.minimum.apps - st.apps, 'application')}`);
+    if (!l.proj) need.push('put 30 minutes into your project');
+    const list = a => (a.length > 1 ? `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}` : a[0]);
+    if (need.length) {
+      if (d < t) return { tone: 'miss', title: "This day didn't count", text: `It was missing: ${list(need)}. Fill in anything you forgot to log.` };
+      if (d > t) return { tone: 'plan', title: 'Planning ahead', text: `For a minimum day you'll need to ${list(need)}.` };
+      return { tone: 'todo', title: 'To make today count', text: `${list(need).replace(/^./, c => c.toUpperCase())}.` };
+    }
+    const stretch = [];
+    if (st.dsa < T.targets.dsa) stretch.push(plural(T.targets.dsa - st.dsa, 'DSA problem'));
+    if (st.apps < T.targets.apps) stretch.push(plural(T.targets.apps - st.apps, 'application'));
+    if (st.refs < T.targets.refs) stretch.push(plural(T.targets.refs - st.refs, 'referral message'));
+    if (stretch.length) return { tone: 'min', title: d === t ? 'Today counts' : 'This day counted', text: `Minimum day done. Stretch goal: ${list(stretch)}.` };
+    return { tone: 'full', title: 'Every target hit', text: d === t ? 'Great day. Write a quick reflection below, then rest.' : 'A full day. Nice.' };
+  }
+
+  function vToday() {
+    const d = ui.day, l = lg(d), st = dayStatus(d), T = S.settings, t0 = today(), isT = d === t0;
+    const auto = allDsa().filter(i => i.done === d).length;
+    const g = dayGuidance(d);
+
+    // Day summary: ring = share of the 3 minimum-day parts done.
+    const parts = [st.dsa >= T.minimum.dsa, st.apps >= T.minimum.apps, !!l.proj];
+    const doneParts = parts.filter(Boolean).length;
+    const pill = (ok, c, label, act = '') => `<${act ? 'button' : 'span'} class="min-pill c-${c} ${ok ? 'ok' : ''}" ${act}>${ok ? ic('check') : '<i></i>'}${label}</${act ? 'button' : 'span'}>`;
+    const summary = `<section class="card day-sum tone-${g.tone}">
+      <div class="sum-ring" style="--p:${Math.round((doneParts / 3) * 100)}"><span><b>${doneParts}/3</b><small>minimum</small></span></div>
+      <div class="sum-body">
+        <p class="eyebrow">${isT ? 'Today' : fmt(d, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        <h2>${esc(g.title)}</h2>
+        <p class="sum-text">${esc(g.text)}</p>
+        <div class="min-pills">
+          ${pill(parts[0], 'dsa', `${Math.min(st.dsa, T.minimum.dsa)}/${T.minimum.dsa} DSA`)}
+          ${pill(parts[1], 'apps', `${Math.min(st.apps, T.minimum.apps)}/${T.minimum.apps} applications`)}
+          ${pill(parts[2], 'proj', '30 min project', `data-act="log-toggle" data-k="proj" aria-pressed="${!!l.proj}"`)}
+        </div>
+      </div>
+    </section>`;
+
+    // Schedule
+    const bl = blocksFor(d), r = rot(d), nm = nowMin();
+    const schedule = bl
+      ? `<div class="timeline">${bl.map(b => {
+          const cur = isT && toMin(b.s) <= nm && nm < toMin(b.e), past = (isT && toMin(b.e) <= nm) || d < t0;
+          return `<div class="blk c-${blockCat(b)} ${b.k === 'break' ? 'break' : ''} ${cur ? 'now' : ''} ${past ? 'past' : ''}">
+            <div class="time">${esc(b.s)} – ${esc(b.e)}</div>
+            <div class="blk-body"><b>${esc(b.t)}</b>${b.d ? `<div class="d">${esc(b.d)}</div>` : ''}</div>
+            ${cur ? `<span class="now-pill"><span class="pulse"></span><span data-until="${esc(b.e)}">${leftLabel(b.e)}</span> left</span>` : past && b.k !== 'break' ? `<span class="blk-done">${ic('check')}</span>` : ''}
+          </div>`; }).join('')}</div>`
       : `<p class="tip">${esc(r.note || 'No timetable for this day.')}</p>`;
 
-    const solved = allDsa().filter(i => i.done === d);
-    const feDone = allFe().filter(i => i.done === d);
-    const moods = ['Low', 'Meh', 'Okay', 'Good', 'Great'];
-    const mark = ok => `<span class="check ${ok ? 'on' : ''}" aria-hidden="true">${ic('check')}</span>`;
+    // Done list (+ next problem when empty)
+    const solved = allDsa().filter(i => i.done === d), feDone = allFe().filter(i => i.done === d);
+    const doneItems = solved.map(i => ({ i, kind: 'DSA' })).concat(feDone.map(i => ({ i, kind: 'JS / build' })));
+    const nx = nextProblems(1)[0];
+    const doneHtml = doneItems.length
+      ? `<ul class="list">${doneItems.map(({ i, kind }) => `<li class="item done"><span class="check on" aria-hidden="true">${ic('check')}</span><div class="item-main"><span class="t">${esc(i.t)}</span><div class="meta">${kind}</div></div>${i.d ? `<div class="item-end"><span class="tag diff-${i.d}">${{ E: 'Easy', M: 'Medium', H: 'Hard' }[i.d]}</span></div>` : ''}</li>`).join('')}</ul>`
+      : `<p class="empty">Nothing ticked ${isT ? 'yet' : 'on this day'}. Problems you tick on the DSA sheet or JS page appear here.</p>`;
+    const nextHtml = isT && nx ? `<div class="next-row c-dsa"><span class="chip-ic">${ic('grid')}</span><div class="item-main"><span class="small muted">Next problem</span><b>${esc(nx.i.t)}</b></div>
+        <div class="next-btns"><a class="btn sm" href="${esc(safeUrl(nx.i.u) || '#dsa')}" target="_blank" rel="noopener">Solve ${ic('ext')}</a><button class="btn sm primary-c" data-act="toggle" data-list="dsa" data-g="${nx.g.id}" data-i="${esc(nx.i.id)}">${ic('check')} Done</button></div></div>` : '';
+
+    // Reflection
+    const moods = [['Low', 'hard'], ['Meh', 'intv'], ['Okay', 'brk'], ['Good', 'mc'], ['Great', 'apps']];
+    const reflection = `<div class="card t-reflect"><h3>Reflection<span class="spacer"></span><span class="small muted" style="font-weight:400">Saved automatically</span></h3>
+      <p class="small muted" style="margin:-6px 0 10px">How did the day feel?</p>
+      <div class="mood-row">${moods.map(([m, c], i) => `<button class="mood c-${c} ${+l.mood === i + 1 ? 'on' : ''}" data-act="mood" data-v="${i + 1}" aria-pressed="${+l.mood === i + 1}">${m}</button>`).join('')}</div>
+      <div class="reflect-grid">
+        <label class="field"><span>Focused hours</span><input class="input" type="number" min="0" max="16" step="0.5" id="log-hours" data-log="hours" value="${esc(l.hours ?? '')}" placeholder="e.g. 6.5"></label>
+        <label class="field"><span>Notes: what went well, what blocked you</span><textarea class="input" id="log-note" data-log="note" placeholder="One line is enough">${esc(l.note || '')}</textarea></label>
+      </div>
+      ${!st.min && d <= t0 ? '<p class="tip" style="margin:14px 0 0">Bad day? Do only the minimum and stop. Never miss two days in a row.</p>' : ''}
+    </div>`;
 
     return `
-      ${head(isT ? 'Today' : fmt(d, { weekday: 'long', day: 'numeric', month: 'long' }), isT ? fmt(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : (d > today() ? 'Planning ahead' : 'Editing a past day'),
-        `<div class="day-nav"><button class="icon-btn lg" data-act="day" data-n="-1" aria-label="Previous day">${ic('left')}</button>${isT ? '' : '<button class="btn" data-act="day" data-n="0">Today</button>'}<input class="input" type="date" id="dayPick" value="${d}" style="width:auto"><button class="icon-btn lg" data-act="day" data-n="1" aria-label="Next day">${ic('right')}</button></div>`)}
-
-      <div class="grid g2">
-        <div class="card">
-          <h3>Minimum day<span class="spacer"></span><span class="badge ${st.min ? 'ok' : ''}">${st.full ? 'All targets hit' : st.min ? 'Done — day counts' : 'Not yet'}</span></h3>
-          <div class="min-list">
-            <div class="row">${mark(st.dsa >= T.minimum.dsa)}<span>${T.minimum.dsa} DSA problems <span class="muted">(${st.dsa} done)</span></span></div>
-            <div class="row">${mark(st.apps >= T.minimum.apps)}<span>${T.minimum.apps} applications <span class="muted">(${st.apps} sent)</span></span></div>
-            <label class="row" style="cursor:pointer"><button class="check ${l.proj ? 'on' : ''}" data-act="log-toggle" data-k="proj" aria-pressed="${!!l.proj}" aria-label="30 minutes on project">${ic('check')}</button><span>30+ minutes on the project</span></label>
-          </div>
-          <p class="tip" style="margin:16px 0 0">Bad day? Do only the minimum and stop. Never miss two days in a row.</p>
-        </div>
-        <div class="card">
-          <h3>How did it feel?</h3>
-          <div class="moods">${moods.map((m, i) => `<button class="chip ${+l.mood === i + 1 ? 'active' : ''}" data-act="mood" data-v="${i + 1}">${m}</button>`).join('')}</div>
-          <div class="form-grid" style="margin-top:14px">
-            <label class="field"><span>Focused hours</span><input class="input" type="number" min="0" max="16" step="0.5" id="log-hours" data-log="hours" value="${esc(l.hours ?? '')}" placeholder="e.g. 6.5"></label>
-          </div>
-          <label class="field" style="margin-top:12px"><span>Notes — what went well, what blocked you</span><textarea class="input" id="log-note" data-log="note" placeholder="Optional">${esc(l.note || '')}</textarea></label>
-        </div>
-      </div>
-
-      <p class="section-title">Counters</p>
-      <div class="counters">
-        ${counter('dsa', 'DSA problems', st.dsa, T.targets.dsa, auto ? ` · ${auto} from sheet` : '')}
-        ${counter('apps', 'Applications', st.apps, T.targets.apps)}
-        ${counter('refs', 'Referral messages', st.refs, T.targets.refs)}
-        ${counter('intv', 'Interviews', +l.intv || 0, 0)}
-      </div>
-
-      <div class="grid g2" style="margin-top:var(--gap)">
-        <div class="card"><h3>${DAYS[parse(d).getDay()]}'s plan<span class="spacer"></span><a class="btn sm ghost" href="#settings">Edit</a></h3>${timeline}</div>
-        <div class="card"><h3>Completed this day</h3>
-          ${solved.length || feDone.length ? `<ul class="list">${solved.concat(feDone).map(i => `<li class="item done"><span class="check on" aria-hidden="true">${ic('check')}</span><div class="item-main"><span class="t">${esc(i.t)}</span></div>${i.d ? `<span class="tag diff-${i.d}">${{ E: 'Easy', M: 'Medium', H: 'Hard' }[i.d]}</span>` : ''}</li>`).join('')}</ul>` : '<p class="empty">Tick problems on the DSA sheet or JS & machine coding pages and they show up here automatically.</p>'}
-        </div>
+      ${head(isT ? 'Today' : fmt(d, { weekday: 'long', day: 'numeric', month: 'long' }), isT ? fmt(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : (d > t0 ? 'Planning ahead' : 'Editing a past day'), '')}
+      <div class="today">
+        <div class="t-week">${weekStrip(d)}</div>
+        <div class="t-sum">${summary}</div>
+        <div class="card t-goals"><h3>Log your work<span class="spacer"></span><span class="small muted" style="font-weight:400">${auto ? `${auto} DSA counted from the sheet` : 'Ticks on the DSA sheet count automatically'}</span></h3>
+          <div class="goals wide">${['dsa', 'apps', 'refs', 'intv', 'proj'].map(k => goalTile(k, d, 'edit')).join('')}</div></div>
+        <div class="card t-plan"><h3>${DAYS[parse(d).getDay()]}'s schedule<span class="spacer"></span><a class="btn sm ghost" href="#settings">Edit</a></h3>${schedule}</div>
+        <div class="card t-done"><h3>Done ${isT ? 'today' : 'this day'} <span class="tag">${doneItems.length}</span></h3>${doneHtml}${nextHtml}</div>
+        ${reflection}
       </div>`;
   }
 
@@ -456,12 +634,14 @@
     return `<li class="item${done ? ' done' : ''}">
       <button class="check" data-act="toggle" ${dataAttrs(a)} aria-pressed="${done}" aria-label="${done ? 'Unmark' : 'Mark'} ${esc(i.t)}">${ic('check')}</button>
       <div class="item-main">${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(i.t)}</a>` : `<span class="t">${esc(i.t)}</span>`}${meta.length ? `<div class="meta">${meta.join(' · ')}</div>` : ''}</div>
-      ${i.d ? `<span class="tag diff-${esc(i.d)}">${{ E: 'Easy', M: 'Medium', H: 'Hard' }[i.d] || esc(i.d)}</span>` : ''}
-      ${i.core ? '<span class="core" title="Core problem">★</span>' : ''}
-      <span class="res-links">${linkBtns(linksFor(list, g, i))}</span>
-      ${list === 'dsa' ? `<button class="icon-btn ${i.rev ? 'on' : ''}" data-act="rev" ${dataAttrs(a)} title="${i.rev ? 'Remove from revision' : `Revise in ${+S.settings.reviseDays || 3} days`}" aria-label="Toggle revision">${ic('repeat')}</button>` : ''}
-      <button class="icon-btn ${i.note ? 'on' : ''}" data-act="note" ${dataAttrs(a)} title="Note" aria-label="Note">${ic('note')}</button>
-      ${ui.edit ? `<button class="icon-btn" data-act="item-edit" ${dataAttrs(a)} title="Edit" aria-label="Edit">${ic('sliders')}</button><button class="icon-btn" data-act="item-del" ${dataAttrs(a)} title="Delete" aria-label="Delete">${ic('trash')}</button>` : ''}
+      <div class="item-end">
+        ${i.d ? `<span class="tag diff-${esc(i.d)}">${{ E: 'Easy', M: 'Medium', H: 'Hard' }[i.d] || esc(i.d)}</span>` : ''}
+        ${i.core ? '<span class="core" title="Core problem">★</span>' : ''}
+        <span class="res-links">${linkBtns(linksFor(list, g, i))}</span>
+        ${list === 'dsa' ? `<button class="icon-btn ${i.rev ? 'on' : ''}" data-act="rev" ${dataAttrs(a)} title="${i.rev ? 'Remove from revision' : `Revise in ${+S.settings.reviseDays || 3} days`}" aria-label="Toggle revision">${ic('repeat')}</button>` : ''}
+        <button class="icon-btn ${i.note ? 'on' : ''}" data-act="note" ${dataAttrs(a)} title="Note" aria-label="Note">${ic('note')}</button>
+        ${ui.edit ? `<button class="icon-btn" data-act="item-edit" ${dataAttrs(a)} title="Edit" aria-label="Edit">${ic('sliders')}</button><button class="icon-btn" data-act="item-del" ${dataAttrs(a)} title="Delete" aria-label="Delete">${ic('trash')}</button>` : ''}
+      </div>
     </li>`;
   }
 
@@ -533,9 +713,11 @@
     const groups = S.topics.map(g => {
       const rows = g.items.map(i => `<li class="item topic-item">
         <div class="item-main"><span class="t">${esc(i.t)}</span></div>
-        <span class="res-links">${linkBtns(linksFor('topics', g, i))}</span>
-        <div class="seg" role="group" aria-label="Confidence">${labels.map((l, v) => `<button class="${(+i.c || 0) === v ? 'on c' + v : ''}" data-act="conf" data-g="${g.id}" data-i="${i.id}" data-v="${v}" aria-pressed="${(+i.c || 0) === v}">${l}</button>`).join('')}</div>
-        ${ui.edit ? `<button class="icon-btn" data-act="item-edit" data-list="topics" data-g="${g.id}" data-i="${i.id}" aria-label="Edit">${ic('sliders')}</button><button class="icon-btn" data-act="item-del" data-list="topics" data-g="${g.id}" data-i="${i.id}" aria-label="Delete">${ic('trash')}</button>` : ''}
+        <div class="item-end">
+          <div class="seg" role="group" aria-label="Confidence">${labels.map((l, v) => `<button class="${(+i.c || 0) === v ? 'on c' + v : ''}" data-act="conf" data-g="${g.id}" data-i="${i.id}" data-v="${v}" aria-pressed="${(+i.c || 0) === v}">${l}</button>`).join('')}</div>
+          <span class="res-links">${linkBtns(linksFor('topics', g, i))}</span>
+          ${ui.edit ? `<button class="icon-btn" data-act="item-edit" data-list="topics" data-g="${g.id}" data-i="${i.id}" aria-label="Edit">${ic('sliders')}</button><button class="icon-btn" data-act="item-del" data-list="topics" data-g="${g.id}" data-i="${i.id}" aria-label="Delete">${ic('trash')}</button>` : ''}
+        </div>
       </li>`).join('');
       return groupBlock('topics', g, rows, '', false, true);
     }).join('');
@@ -553,7 +735,7 @@
       const rows = p.ms.slice().sort((a, b) => (a.due || '9') < (b.due || '9') ? -1 : 1).map(m => `<li class="item${m.done ? ' done' : ''}">
         <button class="check" data-act="ms-toggle" data-p="${p.id}" data-i="${m.id}" aria-pressed="${m.done}" aria-label="Toggle milestone">${ic('check')}</button>
         <div class="item-main"><span class="t">${esc(m.t)}</span><div class="meta">${m.due ? fmt(m.due, { weekday: 'short', day: 'numeric', month: 'short' }) : 'No date'}${!m.done && isDate(m.due) ? ' · ' + dueLabel(m.due) : ''}</div></div>
-        ${ui.edit ? `<button class="icon-btn" data-act="ms-edit" data-p="${p.id}" data-i="${m.id}" aria-label="Edit">${ic('sliders')}</button><button class="icon-btn" data-act="ms-del" data-p="${p.id}" data-i="${m.id}" aria-label="Delete">${ic('trash')}</button>` : ''}
+        ${ui.edit ? `<div class="item-end"><button class="icon-btn" data-act="ms-edit" data-p="${p.id}" data-i="${m.id}" aria-label="Edit">${ic('sliders')}</button><button class="icon-btn" data-act="ms-del" data-p="${p.id}" data-i="${m.id}" aria-label="Delete">${ic('trash')}</button></div>` : ''}
       </li>`).join('');
       return `<div class="card"><h3>${esc(p.name)}<span class="spacer"></span><span class="count">${d}/${p.ms.length}</span></h3>${bar(pct(d, p.ms.length), 'thin')}
         <ul class="list" style="margin-top:6px">${rows || '<li class="empty">No milestones yet.</li>'}</ul>
@@ -652,7 +834,7 @@
     const tPos = target ? (target / max) * 100 : 0;
     const bars = vals.map((v, i) => `<div class="tc-col ${i + 1 === cw ? 'cur' : ''}" title="Week ${i + 1}: ${v === null ? 'upcoming' : v}">
       <div class="tc-track"><div class="tc-bar ${v !== null && target && v >= target ? 'hit' : ''} ${v === null ? 'future' : ''}" style="height:${v === null ? 3 : Math.max(2, (v / max) * 100)}%"></div></div><span>${i + 1}</span></div>`).join('');
-    return `<div class="card"><h3>${esc(title)}<span class="spacer"></span><span class="small muted" style="font-weight:400">target ${target}/week</span></h3>
+    return `<div class="card c-${key}"><h3><span class="chip-ic">${ic(key === 'dsa' ? 'grid' : 'brief')}</span>${esc(title)}<span class="spacer"></span><span class="small muted" style="font-weight:400">target ${target}/week</span></h3>
       <div class="tc" role="img" aria-label="${esc(title)}">${target ? `<div class="tc-target" style="bottom:calc(18px + (100% - 18px) * ${(tPos / 100).toFixed(3)})"><span>target</span></div>` : ''}${bars}</div></div>`;
   }
 
@@ -878,6 +1060,12 @@
     } catch (e) { /* audio unavailable */ }
   }
   function timerTick() {
+    // Live countdowns + progress on the Right now card.
+    document.querySelectorAll('[data-until]').forEach(n => { n.textContent = leftLabel(n.dataset.until); });
+    document.querySelectorAll('[data-prog-s]').forEach(n => {
+      const s = toMin(n.dataset.progS), e = toMin(n.dataset.progE);
+      n.style.width = `${Math.max(0, Math.min(100, ((nowMin() - s) / Math.max(1, e - s)) * 100))}%`;
+    });
     const el = $('#timer');
     if (!S.timerEnd) { el.hidden = true; el.classList.remove('run'); return; }
     el.hidden = false;
@@ -1128,6 +1316,7 @@
       case 'toggle-edit': ui.edit = !ui.edit; return render();
       case 'ui': ui[a.k] = a.v; return render();
 
+      case 'day-set': if (isDate(a.d)) { ui.day = a.d; render(); } return;
       case 'day': {
         ui.day = +a.n === 0 ? today() : addDays(ui.day, +a.n);
         return render();

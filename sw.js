@@ -1,6 +1,6 @@
 /* Offline support: serve the app shell from cache, refresh it in the background.
    Bump VERSION when you change files so phones pick up the new version. */
-const VERSION = 'prep-v3';
+const VERSION = 'prep-v6';
 const SHELL = ['./', './index.html', './css/styles.css', './js/data.js', './js/app.js', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {
