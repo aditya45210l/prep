@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Prep Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f7d66'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11.5' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#f5f4ef" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121615" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Prep Tracker">
+  <meta name="description" content="16-week fresher job-hunt tracker: DSA, machine coding, interview topics, projects and applications.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-512.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+  <script>
+    // Apply saved theme before first paint to avoid a flash.
+    try {
+      var s = JSON.parse(localStorage.getItem('prep-tracker-v1') || '{}').settings || {};
+      var r = document.documentElement;
+      if (s.theme === 'light' || s.theme === 'dark') r.setAttribute('data-theme', s.theme);
+      r.setAttribute('data-style', s.style || 'mono');
+      r.setAttribute('data-accent', s.accent || 'mono');
+      r.setAttribute('data-density', s.density || 'cozy');
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 12.5l4 4L18 8"/></svg></span>
+        <div style="flex:1;min-width:0"><b>Prep Tracker</b><small id="brandSub"></small></div>
+        <button class="icon-btn" data-act="theme-cycle" title="Switch light / dark" aria-label="Switch light or dark theme"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
+      </div>
+      <nav id="nav" class="nav" aria-label="Sections"></nav>
+      <div class="side-foot" id="sideFoot"></div>
+    </aside>
+    <main id="main" class="main" tabindex="-1"></main>
+  </div>
+
+  <nav id="tabbar" class="tabbar" aria-label="Main"></nav>
+  <div class="floaters">
+    <button id="timer" class="timer" data-act="timer" aria-label="Focus timer" hidden></button>
+    <button id="fab" class="fab" data-act="quick" aria-label="Quick actions" title="Quick actions (N)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
+  <dialog id="dlg"></dialog>
+  <dialog id="pal" class="pal" aria-label="Command palette"></dialog>
+  <div id="fx" class="fx" aria-hidden="true"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
